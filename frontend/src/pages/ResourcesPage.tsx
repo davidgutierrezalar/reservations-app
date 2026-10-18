@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, label, query, RESOURCE_TYPES, type Page, type Resource, type ResourceType } from '../api'
 import { useAuth } from '../auth'
+import DateTimePicker from '../DateTimePicker'
 import Pager from '../Pager'
+
+const HOUR = 60 * 60_000
 
 export default function ResourcesPage() {
   const { user } = useAuth()
@@ -40,8 +43,9 @@ export default function ResourcesPage() {
       {error && <p className="error" role="alert">{error}</p>}
 
       {isAdmin && <CreateResourceForm onCreated={load} />}
-      {booking && <BookingForm resource={booking} onClose={() => setBooking(null)} />}
+      {booking && <BookingForm key={booking.id} resource={booking} onClose={() => setBooking(null)} />}
 
+      <div className="table-wrap">
       <table>
         <thead>
           <tr><th>Name</th><th>Type</th><th>Capacity</th>{isAdmin && <th>Status</th>}<th /></tr>
@@ -62,23 +66,26 @@ export default function ResourcesPage() {
           {data?.content.length === 0 && <tr><td colSpan={5} className="muted">No resources found</td></tr>}
         </tbody>
       </table>
+      </div>
       {data && <Pager page={data.page} onChange={setPageNumber} />}
     </>
   )
 }
 
 function BookingForm({ resource, onClose }: { resource: Resource; onClose: () => void }) {
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
+  const [start, setStart] = useState<Date | null>(null)
+  const [end, setEnd] = useState<Date | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  // Captured when the form opens; the server re-checks "in the future" on submit anyway
+  const [now] = useState(() => new Date())
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (!start || !end) return
     try {
-      // datetime-local has no timezone: Date reads it as local time, toISOString sends UTC
       await api('/reservations', {
         method: 'POST',
-        body: { resourceId: resource.id, startTime: new Date(start).toISOString(), endTime: new Date(end).toISOString() },
+        body: { resourceId: resource.id, startTime: start.toISOString(), endTime: end.toISOString() },
       })
       setMessage({ ok: true, text: 'Reservation confirmed. See it under My reservations.' })
     } catch (err) {
@@ -88,16 +95,23 @@ function BookingForm({ resource, onClose }: { resource: Resource; onClose: () =>
     }
   }
 
+  const pickStart = (d: Date) => {
+    setStart(d)
+    // Default to one hour, and never leave the end before the new start
+    if (!end || end <= d) setEnd(new Date(d.getTime() + HOUR))
+  }
+
   return (
-    <form className="card stack" onSubmit={submit}>
+    <form className="card stack has-popover" onSubmit={submit}>
       <h2>Book {resource.name}</h2>
       <div className="row">
-        <label>Start<input type="datetime-local" required value={start} onChange={(e) => setStart(e.target.value)} /></label>
-        <label>End<input type="datetime-local" required value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        <DateTimePicker label="Start" value={start} onChange={pickStart} min={now} />
+        <DateTimePicker label="End" value={end} onChange={setEnd}
+                        min={start ? new Date(start.getTime() + 30 * 60_000) : now} />
       </div>
       {message && <p className={message.ok ? 'success' : 'error'} role="status">{message.text}</p>}
       <div className="row">
-        <button type="submit">Confirm booking</button>
+        <button type="submit" disabled={!start || !end}>Confirm booking</button>
         <button type="button" className="link" onClick={onClose}>Close</button>
       </div>
     </form>

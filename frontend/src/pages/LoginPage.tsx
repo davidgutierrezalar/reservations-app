@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError, type AuthResponse } from '../api'
 import { useAuth } from '../auth'
 
 export default function LoginPage() {
   const { user, signIn } = useAuth()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [params] = useSearchParams()
+  const [mode, setMode] = useState<'login' | 'register'>(params.get('mode') === 'register' ? 'register' : 'login')
   const [form, setForm] = useState({ name: '', email: '', password: '' })
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(false)
@@ -41,6 +42,7 @@ export default function LoginPage() {
 
   return (
     <div className="card narrow">
+      <Link to="/" className="brand">Slotline</Link>
       <h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
       <form onSubmit={submit} className="stack">
         {mode === 'register' && field('name', 'Name')}

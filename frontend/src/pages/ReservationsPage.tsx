@@ -35,6 +35,7 @@ export default function ReservationsPage() {
         </select>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      <div className="table-wrap">
       <table>
         <thead>
           <tr><th>Resource</th>{isAdmin && <th>User</th>}<th>Start</th><th>End</th><th>Status</th><th /></tr>
@@ -55,6 +56,7 @@ export default function ReservationsPage() {
           {data?.content.length === 0 && <tr><td colSpan={6} className="muted">No reservations yet</td></tr>}
         </tbody>
       </table>
+      </div>
       {data && <Pager page={data.page} onChange={setPageNumber} />}
     </>
   )
