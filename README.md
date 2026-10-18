@@ -1,6 +1,6 @@
 # Reservations
 
-![CI](https://github.com/<your-user>/<repo>/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/davidgutierrezalar/reservations-app/actions/workflows/ci.yml/badge.svg)
 
 A full-stack app to book shared resources (meeting rooms, desks, equipment, vehicles), with JWT authentication,
 role-based access, and double-booking protection enforced by the database.
