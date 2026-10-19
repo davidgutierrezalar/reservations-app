@@ -22,9 +22,11 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AuthService {
@@ -35,6 +37,7 @@ public class AuthService {
     private final JwtDecoder refreshTokenDecoder;
     private final Duration accessTtl;
     private final Duration refreshTtl;
+    private final String dummyHash;
 
     public AuthService(UserRepository users, PasswordEncoder passwordEncoder, JwtEncoder jwtEncoder,
                        @Qualifier("refreshTokenDecoder") JwtDecoder refreshTokenDecoder,
@@ -46,6 +49,7 @@ public class AuthService {
         this.refreshTokenDecoder = refreshTokenDecoder;
         this.accessTtl = accessTtl;
         this.refreshTtl = refreshTtl;
+        this.dummyHash = passwordEncoder.encode("timing-equalizer");
     }
 
     /** A signed-in session: the user plus the two tokens the controller puts in cookies. */
@@ -55,6 +59,11 @@ public class AuthService {
     @Transactional
     public Tokens register(RegisterRequest req) {
         String email = req.email().trim().toLowerCase();
+        // BCrypt rejects more than 72 bytes, and multibyte characters pass the 72-character limit on the DTO
+        if (tooLongForBcrypt(req.password())) {
+            throw ApiException.badRequest("Validation failed")
+                    .with("errors", Map.of("password", "must be at most 72 bytes; accented characters count double"));
+        }
         if (users.existsByEmail(email)) {
             throw ApiException.conflict("Email already registered");
         }
@@ -64,9 +73,13 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public Tokens login(LoginRequest req) {
-        User user = users.findByEmail(req.email().trim().toLowerCase())
-                .filter(u -> passwordEncoder.matches(req.password(), u.getPassword()))
-                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+        User user = users.findByEmail(req.email().trim().toLowerCase()).orElse(null);
+        // Hash even when the email is unknown, so response time does not reveal which emails are registered
+        boolean matches = !tooLongForBcrypt(req.password())
+                && passwordEncoder.matches(req.password(), user != null ? user.getPassword() : dummyHash);
+        if (user == null || !matches) {
+            throw new BadCredentialsException("Invalid email or password");
+        }
         return issueTokens(user);
     }
 
@@ -86,6 +99,10 @@ public class AuthService {
         User user = users.findById(Long.valueOf(jwt.getSubject()))
                 .orElseThrow(() -> new BadCredentialsException("Session expired, sign in again"));
         return issueTokens(user);
+    }
+
+    private static boolean tooLongForBcrypt(String password) {
+        return password.getBytes(StandardCharsets.UTF_8).length > 72;
     }
 
     private Tokens issueTokens(User user) {

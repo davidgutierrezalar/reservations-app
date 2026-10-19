@@ -5,8 +5,7 @@ services:
       POSTGRES_DB: reservas
       POSTGRES_USER: reservas
       POSTGRES_PASSWORD: reservas
-    ports:
-      - "5432:5432"
+    # No published port: only the backend reaches it, over the Compose network, so the demo credentials stay private
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +24,8 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@reservas.dev}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin12345}
     ports:
-      - "8080:8080"
+      # Loopback only (Swagger for local use); browsers go through nginx so rate limiting sees their real IP
+      - "127.0.0.1:8080:8080"
     depends_on:
       db:
         condition: service_healthy

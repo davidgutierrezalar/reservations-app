@@ -7,7 +7,7 @@ Slotline: a resource reservation system. `backend/` is a Spring Boot 4 / Java 25
 ## Commands
 
 ```bash
-docker compose up -d --build                     # full stack: app :3000, API :8080 (Swagger at /swagger-ui.html), Postgres :5432
+docker compose up -d --build                     # full stack: app :3000, API on 127.0.0.1:8080 (Swagger at /swagger-ui.html); Postgres is not published
 docker compose up -d --build --no-deps frontend  # rebuild only the frontend container
 docker compose down                              # stop (keeps the db-data volume)
 ```
@@ -51,6 +51,7 @@ Its `WHERE status IN ('PENDING','CONFIRMED')` must match `ReservationStatus.ACTI
 - **Pages:** serialize as `{content, page: {size, number, totalElements, totalPages}}`, set up by `@EnableSpringDataWebSupport(VIA_DTO)` in `BackendApplication`. Search filters are built as a single `Specification` lambda that collects predicates.
 - **Booking rules** (`ReservationService`): start in the future, end after start, at most 12h. Series are DAILY/WEEKLY, 2 to 12 dates, all or nothing. A user's booking on a `requiresApproval` resource starts PENDING; an admin's is CONFIRMED, and an admin's edit keeps the current status.
 - **Auth cookies:** `AuthController` puts the access token (`app.jwt.ttl`, 15 min, path `/api`) and refresh token (`app.jwt.refresh-ttl`, 7 days, path `/api/auth/refresh`) in httpOnly, Secure, SameSite=Strict cookies; bodies only carry the user. Tokens carry `token_use` (`access`/`refresh`) and each `JwtDecoder` bean accepts only its own kind. A filter after `CsrfFilter` turns the access cookie into a bearer header: it must run after it, because the resource server exempts bearer requests from CSRF. CSRF uses `csrf.spa()`; `/api/auth/**` and requests with an `Authorization` header (tests, API clients) are exempt.
+- **Rate limiting:** `auth.AuthRateLimitFilter` caps login and register attempts per IP (`app.auth.rate-limit.*`), in memory. `ApiIntegrationTest` raises the cap because all its requests share one IP; the filter has its own unit test. Behind nginx the IP comes from `X-Forwarded-For` (`server.forward-headers-strategy=native`), which `nginx.conf` overwrites with `$remote_addr`.
 - **Config:** `app.jwt.secret` (env `JWT_SECRET`, at least 32 bytes) has no default, and the app refuses to start without it. Tests pass it through `@SpringBootTest(properties=...)`; `TestBackendApplication` sets dev values. `ADMIN_EMAIL`/`ADMIN_PASSWORD` seed the first admin (`AdminInitializer`).
 - **Spring Boot 4 / Jackson 3 gotchas:**
   - A primitive field in a request record that the JSON omits fails with 400. Use a boxed type and normalize it in the compact constructor, as `ResourceRequest.requiresApproval` does.

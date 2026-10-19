@@ -39,7 +39,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "app.jwt.secret=test-secret-test-secret-test-secret-123",
         "app.admin.email=admin@test.dev",
-        "app.admin.password=admin-password"})
+        "app.admin.password=admin-password",
+        // Every test signs in from the same address; AuthRateLimitFilterTest covers the limit itself
+        "app.auth.rate-limit.max-attempts=100000"})
 class ApiIntegrationTest {
 
     @Autowired WebApplicationContext context;
@@ -142,6 +144,18 @@ class ApiIntegrationTest {
                 .andReturn().getResponse();
         assertThat(res.getCookie("access_token").getMaxAge()).isZero();
         assertThat(res.getCookie("refresh_token").getMaxAge()).isZero();
+    }
+
+    @Test
+    void passwordsLongerThanBcryptAllowsAreRejectedCleanly() throws Exception {
+        // 40 characters, 80 bytes in UTF-8: passes a character limit but BCrypt only takes 72 bytes
+        String multibyte = "ñ".repeat(40);
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Test\",\"email\":\"long-" + UUID.randomUUID() + "@test.dev\",\"password\":\"" + multibyte + "\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@test.dev\",\"password\":\"" + "x".repeat(100) + "\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
