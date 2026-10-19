@@ -52,6 +52,16 @@ export default function LandingPage() {
           ))}
         </ol>
       </main>
+      <footer className="landing-footer">
+        <p>
+          Slotline is a demo project for a developer portfolio. The spaces, rooms and vehicles shown are not real and
+          cannot be used.
+        </p>
+        <p>
+          Built with assistance from Claude Code (AI); design decisions, review and testing by the author.{' '}
+          <a href="https://github.com/davidgutierrezalar/reservations-app">Source code</a> under the MIT license.
+        </p>
+      </footer>
     </>
   )
 }

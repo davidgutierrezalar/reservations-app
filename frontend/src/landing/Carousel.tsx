@@ -8,9 +8,12 @@ const AUTOPLAY_MS = 6000
 
 export default function Carousel({ slides }: { slides: Slide[] }) {
   const [index, setIndex] = useState(0)
-  const [paused, setPaused] = useState(
+  // Two reasons to stop: the viewer asked (button, or reduced motion), or is hovering/focusing for a moment
+  const [stopped, setStopped] = useState(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   )
+  const [hovered, setHovered] = useState(false)
+  const paused = stopped || hovered
 
   useEffect(() => {
     if (paused) return
@@ -25,9 +28,9 @@ export default function Carousel({ slides }: { slides: Slide[] }) {
       className="carousel"
       aria-roledescription="carousel"
       aria-label="Spaces you can book"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocus={() => setPaused(true)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
       onKeyDown={(e) => {
         if (e.key === 'ArrowRight') go(index + 1)
         if (e.key === 'ArrowLeft') go(index - 1)
@@ -56,6 +59,10 @@ export default function Carousel({ slides }: { slides: Slide[] }) {
                     aria-current={i === index} onClick={() => go(i)} />
           ))}
         </div>
+        {/* WCAG 2.2.2: anything that moves on its own for more than 5 s needs a visible way to stop it */}
+        <button className="secondary" aria-pressed={stopped} onClick={() => setStopped(!stopped)}>
+          {stopped ? 'Play' : 'Pause'}
+        </button>
         <button className="secondary" aria-label="Previous space" onClick={() => go(index - 1)}>Prev</button>
         <button className="secondary" aria-label="Next space" onClick={() => go(index + 1)}>Next</button>
       </div>

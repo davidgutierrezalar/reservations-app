@@ -5,6 +5,9 @@
 A full-stack app to book shared resources (meeting rooms, desks, equipment, vehicles), with JWT authentication,
 role-based access, and double-booking protection enforced by the database.
 
+> **Demo project.** Slotline is a portfolio piece: the spaces it lists are not real, and the public demo, if any,
+> is not meant for real bookings or real personal data.
+
 **Stack:** Java 25 · Spring Boot 4 (Web MVC, Security, Data JPA, Validation) · PostgreSQL 17 · Flyway ·
 React 19 + TypeScript (Vite) · JUnit 5 · Mockito · Testcontainers · OpenAPI/Swagger · Docker Compose · GitHub Actions
 
@@ -96,7 +99,8 @@ cd backend && ./mvnw verify    # needs Docker running for Testcontainers
 - `ReservationServiceTest`: unit tests of the booking rules with Mockito
 - `ApiIntegrationTest`: the full HTTP flow against a real PostgreSQL in a container (auth, roles, validation, pagination, overlap, edits, series, approvals, availability, audit, and the database constraint on inserts and updates)
 
-CI runs both, plus the frontend lint and build and a Docker image build, on every push.
+CI runs both, plus the frontend lint and build and a Docker image build, on every push. `verify` also writes a JaCoCo
+coverage report to `backend/target/site/jacoco/index.html`, which CI uploads as the `coverage-report` artifact.
 
 ## Local development without Docker Compose
 
@@ -110,4 +114,13 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 - The token is kept in `localStorage`; a production app would use an httpOnly cookie with refresh tokens
 - Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
 - Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
-- Next steps: Prometheus/Grafana metrics, a coverage badge (JaCoCo), and a cloud deployment
+- Next steps: Prometheus/Grafana metrics, a coverage badge, and a cloud deployment
+
+## How this was built
+
+Built with assistance from [Claude Code](https://claude.com/claude-code) (AI). Requirements, design decisions, code
+review and testing are mine; commits written with the assistant carry a `Co-Authored-By: Claude` trailer.
+
+## License
+
+[MIT](LICENSE)
