@@ -105,12 +105,15 @@ changes the schema.
 
 ```bash
 cd backend && ./mvnw verify    # needs Docker running for Testcontainers
+cd frontend && npm test        # Vitest + Testing Library, no backend needed
 ```
 
 - `ReservationServiceTest`: unit tests of the booking rules with Mockito
+- `AuthServiceTest`, `AuthRateLimitFilterTest`: login timing and the per-IP attempt limit
+- `DateTimePicker.test.tsx`, `Availability.test.tsx`: the booking widgets in jsdom, with a fixed clock and a stubbed API
 - `ApiIntegrationTest`: the full HTTP flow against a real PostgreSQL in a container (auth, roles, validation, pagination, overlap, edits, series, approvals, availability, audit, and the database constraint on inserts and updates)
 
-CI runs both, plus the frontend lint and build and a Docker image build, on every push. `verify` also writes a JaCoCo
+CI runs all of them, plus the frontend lint and build and a Docker image build, on every push. `verify` also writes a JaCoCo
 coverage report to `backend/target/site/jacoco/index.html`, which CI uploads as the `coverage-report` artifact.
 
 ## Local development without Docker Compose
