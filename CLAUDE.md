@@ -23,9 +23,9 @@ Backend (from `backend/`; on Windows use `mvnw.cmd`). Docker must be running: in
 ./mvnw spring-boot:test-run                                     # run the API locally with a throwaway Postgres container
 ```
 
-Frontend (from `frontend/`): `npm run dev` (port 5173, proxies `/api` to `:8080`), `npm run build` (runs `tsc -b`), `npm run lint` (oxlint). There are no frontend tests.
+Frontend (from `frontend/`): `npm run dev` (port 5173, proxies `/api` to `:8080`), `npm run build` (runs `tsc -b`), `npm run lint` (oxlint), `npm test` (Vitest + Testing Library in jsdom; tests sit next to their component as `*.test.tsx`). Tests fake only `Date` (`vi.useFakeTimers({ toFake: ['Date'] })`) so user-event keeps working, stub `fetch` with `vi.stubGlobal`, and build expected labels with the same locale formatters the component uses, since CI and local machines differ in locale.
 
-CI (`.github/workflows/ci.yml`) runs backend `verify`, frontend lint and build, then `docker compose build`.
+CI (`.github/workflows/ci.yml`) runs backend `verify`, frontend lint, tests and build, then `docker compose build`.
 
 ## Backend architecture
 
