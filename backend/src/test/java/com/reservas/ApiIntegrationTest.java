@@ -14,7 +14,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import jakarta.servlet.http.Cookie;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -24,6 +27,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -79,6 +83,65 @@ class ApiIntegrationTest {
         mvc.perform(auth(post("/api/reservations"), userToken).content("{\"resourceId\": 1, \"startTime\": "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Request body is missing or is not valid JSON"));
+    }
+
+    @Test
+    void loginSetsHttpOnlyCookiesAndKeepsTokensOutOfTheBody() throws Exception {
+        MockHttpServletResponse res = loginResponse("admin@test.dev", "admin-password");
+
+        assertThat(res.getContentAsString()).contains("admin@test.dev").doesNotContain(res.getCookie("access_token").getValue());
+        assertThat(res.getHeaders(HttpHeaders.SET_COOKIE))
+                .anySatisfy(c -> assertThat(c).startsWith("access_token=")
+                        .contains("Path=/api;", "HttpOnly", "Secure", "SameSite=Strict"))
+                .anySatisfy(c -> assertThat(c).startsWith("refresh_token=")
+                        .contains("Path=/api/auth/refresh;", "HttpOnly", "Secure", "SameSite=Strict"));
+    }
+
+    @Test
+    void cookieSessionsNeedTheCsrfHeaderToChangeData() throws Exception {
+        Cookie access = loginResponse("admin@test.dev", "admin-password").getCookie("access_token");
+        String body = "{\"name\":\"Room " + UUID.randomUUID() + "\",\"type\":\"DESK\",\"capacity\":1}";
+
+        // Reads work with the cookie alone, and hand out the CSRF token cookie
+        Cookie xsrf = mvc.perform(get("/api/resources").cookie(access))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getCookie("XSRF-TOKEN");
+        assertThat(xsrf).isNotNull();
+
+        mvc.perform(post("/api/resources").cookie(access).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/resources").cookie(access, xsrf).header("X-XSRF-TOKEN", xsrf.getValue())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void refreshTokenRenewsTheSessionButCannotCallTheApi() throws Exception {
+        Cookie refresh = loginResponse("admin@test.dev", "admin-password").getCookie("refresh_token");
+
+        mvc.perform(get("/api/resources").header("Authorization", "Bearer " + refresh.getValue()))
+                .andExpect(status().isUnauthorized());
+
+        String renewed = mvc.perform(post("/api/auth/refresh").cookie(refresh))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("admin@test.dev"))
+                .andReturn().getResponse().getCookie("access_token").getValue();
+        mvc.perform(get("/api/resources").cookie(new Cookie("access_token", renewed))).andExpect(status().isOk());
+
+        mvc.perform(post("/api/auth/refresh"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Not signed in"));
+        mvc.perform(post("/api/auth/refresh").cookie(new Cookie("refresh_token", userToken)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logoutClearsBothCookies() throws Exception {
+        MockHttpServletResponse res = mvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isNoContent())
+                .andReturn().getResponse();
+        assertThat(res.getCookie("access_token").getMaxAge()).isZero();
+        assertThat(res.getCookie("refresh_token").getMaxAge()).isZero();
     }
 
     @Test
@@ -338,19 +401,21 @@ class ApiIntegrationTest {
     }
 
     private String login(String email, String password) throws Exception {
-        String body = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+        return loginResponse(email, password).getCookie("access_token").getValue();
+    }
+
+    private MockHttpServletResponse loginResponse(String email, String password) throws Exception {
+        return mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.token");
+                .andReturn().getResponse();
     }
 
     private String register(String email) throws Exception {
-        String body = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+        return mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody(email)))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.token");
+                .andReturn().getResponse().getCookie("access_token").getValue();
     }
 
     private static String registerBody(String email) {

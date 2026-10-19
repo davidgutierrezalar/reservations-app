@@ -1,27 +1,29 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
-import { loadAuth, saveAuth, type AuthResponse, type User } from './api'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { api, refreshSession, type User } from './api'
 
 interface AuthContextValue {
   user: User | null
-  signIn: (auth: AuthResponse) => void
-  signOut: () => void
+  signIn: (user: User) => void
+  signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => loadAuth()?.user ?? null)
+  // undefined until the first refresh answers: the cookies are httpOnly, so asking the API is the only way to know
+  const [user, setUser] = useState<User | null | undefined>(undefined)
 
-  const signIn = (auth: AuthResponse) => {
-    saveAuth(auth)
-    setUser(auth.user)
-  }
-  const signOut = () => {
-    saveAuth(null)
+  useEffect(() => {
+    refreshSession().then(setUser)
+  }, [])
+
+  const signOut = async () => {
+    await api('/auth/logout', { method: 'POST' }).catch(() => undefined)
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, signIn, signOut }}>{children}</AuthContext.Provider>
+  if (user === undefined) return null
+  return <AuthContext.Provider value={{ user, signIn: setUser, signOut }}>{children}</AuthContext.Provider>
 }
 
 // Hook lives next to its provider on purpose; only costs fast refresh for this file

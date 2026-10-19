@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { api, ApiError, type AuthResponse } from '../api'
+import { api, ApiError, type User } from '../api'
 import { useAuth } from '../auth'
 
 export default function LoginPage() {
@@ -19,7 +19,7 @@ export default function LoginPage() {
     setError(null)
     try {
       const body = mode === 'login' ? { email: form.email, password: form.password } : form
-      signIn(await api<AuthResponse>(`/auth/${mode}`, { method: 'POST', body }))
+      signIn(await api<User>(`/auth/${mode}`, { method: 'POST', body }))
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError(0, 'Could not reach the server'))
     } finally {

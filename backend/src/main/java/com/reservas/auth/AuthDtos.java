@@ -6,8 +6,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-import java.time.Instant;
-
 public final class AuthDtos {
 
     private AuthDtos() {
@@ -27,8 +25,5 @@ public final class AuthDtos {
         static UserResponse from(User u) {
             return new UserResponse(u.getId(), u.getName(), u.getEmail(), u.getRole());
         }
-    }
-
-    public record AuthResponse(String token, Instant expiresAt, UserResponse user) {
     }
 }

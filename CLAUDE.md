@@ -50,6 +50,7 @@ Its `WHERE status IN ('PENDING','CONFIRMED')` must match `ReservationStatus.ACTI
 **Other conventions:**
 - **Pages:** serialize as `{content, page: {size, number, totalElements, totalPages}}`, set up by `@EnableSpringDataWebSupport(VIA_DTO)` in `BackendApplication`. Search filters are built as a single `Specification` lambda that collects predicates.
 - **Booking rules** (`ReservationService`): start in the future, end after start, at most 12h. Series are DAILY/WEEKLY, 2 to 12 dates, all or nothing. A user's booking on a `requiresApproval` resource starts PENDING; an admin's is CONFIRMED, and an admin's edit keeps the current status.
+- **Auth cookies:** `AuthController` puts the access token (`app.jwt.ttl`, 15 min, path `/api`) and refresh token (`app.jwt.refresh-ttl`, 7 days, path `/api/auth/refresh`) in httpOnly, Secure, SameSite=Strict cookies; bodies only carry the user. Tokens carry `token_use` (`access`/`refresh`) and each `JwtDecoder` bean accepts only its own kind. A filter after `CsrfFilter` turns the access cookie into a bearer header: it must run after it, because the resource server exempts bearer requests from CSRF. CSRF uses `csrf.spa()`; `/api/auth/**` and requests with an `Authorization` header (tests, API clients) are exempt.
 - **Config:** `app.jwt.secret` (env `JWT_SECRET`, at least 32 bytes) has no default, and the app refuses to start without it. Tests pass it through `@SpringBootTest(properties=...)`; `TestBackendApplication` sets dev values. `ADMIN_EMAIL`/`ADMIN_PASSWORD` seed the first admin (`AdminInitializer`).
 - **Spring Boot 4 / Jackson 3 gotchas:**
   - A primitive field in a request record that the JSON omits fails with 400. Use a boxed type and normalize it in the compact constructor, as `ResourceRequest.requiresApproval` does.
@@ -64,8 +65,9 @@ Its `WHERE status IN ('PENDING','CONFIRMED')` must match `ReservationStatus.ACTI
 
 ## Frontend architecture
 
-- **API client:** `src/api.ts` holds the API types and the only fetch wrapper `api<T>()`. It adds the bearer token (kept in `localStorage`), redirects to `/login` on 401, and turns `ProblemDetail` into `ApiError` (`fieldErrors`, plus `data` for extra fields like `conflicts`). `errorText()` formats it for display.
+- **API client:** `src/api.ts` holds the API types and the only fetch wrapper `api<T>()`. It sends the `X-XSRF-TOKEN` header on writes, and on a 401 calls `refreshSession()` once (shared by parallel calls) and replays the request, else redirects to `/login`. It turns `ProblemDetail` into `ApiError` (`fieldErrors`, plus `data` for extra fields like `conflicts`). `errorText()` formats it for display.
 - **Same origin, no CORS:** `/api` goes through Vite's dev proxy or nginx (`frontend/nginx.conf`) in Docker. Send times as UTC ISO strings (`toISOString()`) and display them in local time.
+- **Session:** `AuthProvider` renders nothing until `POST /api/auth/refresh` answers, since httpOnly cookies are the only record of who is signed in.
 - **Routing:** set up in `App.tsx`. The landing page (`/`) has its own layout. Signed-in pages share `AppLayout`, and `RequireAuth admin` guards the admin pages: Approvals reuses `ReservationsPage approvals`, Activity is separate.
 - **Booking:** `ReservationForm` handles create, series and edit. It combines `Availability`, a week strip plus half-hour grid fed by `GET /api/resources/{id}/availability`, with `DateTimePicker`, which closes once a time is picked.
 - **Notifications:** `EmailPreviewPage` is a visual mockup only. Nothing sends email, by decision.

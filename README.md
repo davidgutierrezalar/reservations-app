@@ -28,7 +28,7 @@ Anyone can register as a regular user from the login screen.
 
 ## Features
 
-- Register and log in with a stateless JWT (HS256); passwords are hashed with BCrypt
+- Register and log in with stateless JWTs (HS256) in httpOnly cookies: a 15-minute access token renewed by a 7-day refresh token, with CSRF protection; passwords are hashed with BCrypt
 - Two roles: **USER** books resources and manages their own reservations; **ADMIN** manages resources and sees every reservation
 - Resource search with name, type and minimum-capacity filters, pagination and sorting
 - Reservations with validation: start time in the future, end after start, a maximum of 12 hours, and no overlaps
@@ -74,6 +74,11 @@ using `NimbusJwtEncoder` and `NimbusJwtDecoder`, so signing, expiry and validati
 framework instead of custom filter code. The signing key comes from the environment and the app refuses to start
 without it.
 
+**Tokens in httpOnly cookies, not `localStorage`.** Page scripts never see a token, so an XSS bug cannot steal the
+session. Both cookies are `Secure` and `SameSite=Strict`; the refresh cookie is scoped to `/api/auth/refresh`, and
+a `token_use` claim stops a refresh token from being used as an access token. Because the browser now sends
+credentials by itself, writes require Spring Security's CSRF token (`XSRF-TOKEN` cookie echoed in a header).
+
 **Same origin, no CORS.** nginx serves the SPA and proxies `/api` to the backend, and Vite's dev server does the
 same. The browser only ever talks to a single origin.
 
@@ -111,7 +116,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 
 ## Known limitations / next steps
 
-- The token is kept in `localStorage`; a production app would use an httpOnly cookie with refresh tokens
+- Refresh tokens are stateless, so signing out clears the cookies but cannot revoke a token copied before; storing them would allow rotation and revocation
 - Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
 - Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
 - Next steps: Prometheus/Grafana metrics, a coverage badge, and a cloud deployment

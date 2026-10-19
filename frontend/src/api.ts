@@ -8,7 +8,6 @@ export const RESERVATION_STATUSES: ReservationStatus[] = ['PENDING', 'CONFIRMED'
 export const isActive = (s: ReservationStatus) => s === 'PENDING' || s === 'CONFIRMED'
 
 export interface User { id: number; name: string; email: string; role: Role }
-export interface AuthResponse { token: string; expiresAt: string; user: User }
 export interface Resource {
   id: number; name: string; description: string | null; type: ResourceType; capacity: number; active: boolean
   requiresApproval: boolean
@@ -27,23 +26,6 @@ export interface Page<T> {
   page: { size: number; number: number; totalElements: number; totalPages: number }
 }
 
-const TOKEN_KEY = 'auth'
-
-// shortcut: token in localStorage is readable by any XSS on this origin; move to an httpOnly cookie for a real product
-export function loadAuth(): AuthResponse | null {
-  try {
-    const auth = JSON.parse(localStorage.getItem(TOKEN_KEY) ?? 'null') as AuthResponse | null
-    return auth && new Date(auth.expiresAt) > new Date() ? auth : null
-  } catch {
-    return null
-  }
-}
-
-export function saveAuth(auth: AuthResponse | null) {
-  if (auth) localStorage.setItem(TOKEN_KEY, JSON.stringify(auth))
-  else localStorage.removeItem(TOKEN_KEY)
-}
-
 export class ApiError extends Error {
   status: number
   fieldErrors: Record<string, string>
@@ -58,19 +40,23 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+// The session lives in httpOnly cookies the browser sends by itself; scripts here never see the tokens
+export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}, retry = true): Promise<T> {
+  const method = options.method ?? 'GET'
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = loadAuth()?.token
-  if (token) headers.Authorization = `Bearer ${token}`
+  // Spring Security's CSRF check: echo the readable XSRF-TOKEN cookie on state-changing calls
+  const xsrf = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/)?.[1]
+  if (method !== 'GET' && xsrf) headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrf)
 
   const res = await fetch(`/api${path}`, {
-    method: options.method ?? 'GET',
+    method,
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   })
 
-  if (res.status === 401 && token) {
-    saveAuth(null)
+  // The access token is short-lived: renew it once with the refresh cookie and replay the call
+  if (res.status === 401 && retry && !path.startsWith('/auth/')) {
+    if (await refreshSession()) return api<T>(path, options, false)
     window.location.assign('/login')
   }
   if (!res.ok) {
@@ -79,6 +65,16 @@ export async function api<T>(path: string, options: { method?: string; body?: un
     throw new ApiError(res.status, problem.detail ?? `Request failed (${res.status})`, problem.errors, problem)
   }
   return (res.status === 204 ? undefined : await res.json()) as T
+}
+
+let refreshing: Promise<User | null> | null = null
+
+/** Renews the cookies and returns who is signed in, or null. Parallel 401s share one refresh call. */
+export function refreshSession() {
+  refreshing ??= api<User>('/auth/refresh', { method: 'POST' })
+    .catch(() => null)
+    .finally(() => { refreshing = null })
+  return refreshing
 }
 
 export function query(params: Record<string, string | number | undefined>) {
