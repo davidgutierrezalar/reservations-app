@@ -79,6 +79,12 @@ session. Both cookies are `Secure` and `SameSite=Strict`; the refresh cookie is 
 a `token_use` claim stops a refresh token from being used as an access token. Because the browser now sends
 credentials by itself, writes require Spring Security's CSRF token (`XSRF-TOKEN` cookie echoed in a header).
 
+**Hardening against common attacks.** Login and register are rate-limited per client IP (429 with `Retry-After`),
+and login hashes a dummy password for unknown emails so response time does not reveal who is registered. nginx
+sends a strict Content-Security-Policy plus anti-clickjacking and `nosniff` headers, and overwrites
+`X-Forwarded-For` so clients cannot pick their own rate-limit bucket. In Compose, Postgres is not published and
+the API listens on loopback only.
+
 **Same origin, no CORS.** nginx serves the SPA and proxies `/api` to the backend, and Vite's dev server does the
 same. The browser only ever talks to a single origin.
 
@@ -116,6 +122,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 
 ## Known limitations / next steps
 
+- The Compose file ships demo defaults for `JWT_SECRET` and the admin password; set real values before any deployment
 - Refresh tokens are stateless, so signing out clears the cookies but cannot revoke a token copied before; storing them would allow rotation and revocation
 - Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
 - Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
