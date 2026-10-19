@@ -27,8 +27,14 @@ Anyone can register as a regular user from the login screen.
 
 - Register and log in with a stateless JWT (HS256); passwords are hashed with BCrypt
 - Two roles: **USER** books resources and manages their own reservations; **ADMIN** manages resources and sees every reservation
-- Resource search with name and type filters, pagination and sorting
+- Resource search with name, type and minimum-capacity filters, pagination and sorting
 - Reservations with validation: start time in the future, end after start, a maximum of 12 hours, and no overlaps
+- **Availability view:** a week strip and half-hour grid show which slots of a resource are free before you pick a time
+- **Edit bookings:** change the time and/or the resource of an upcoming booking, with the same rules as a new one
+- **Recurring bookings:** daily or weekly, up to 12 dates, all or nothing (if one date is taken, none is booked and the API lists the colliding dates); cancel one date or the rest of the series
+- **Approval flow:** admins mark expensive resources as *needs approval*; bookings on them stay `PENDING` (and hold the slot) until an admin approves or rejects them
+- **Audit trail:** every create, edit, cancel, approve, reject and resource change is recorded with who and when; admins browse it in *Activity*
+- **Email previews:** a mockup of the confirmation, reminder and cancellation emails. Nothing is sent yet; it shows the planned flow
 - A single error format for the whole API ([RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457)), including field-level validation errors
 
 ## Architecture
@@ -44,7 +50,8 @@ flowchart LR
 backend/src/main/java/com/reservas
 ├── auth/          register, login, JWT issuing
 ├── resource/      bookable resources (admin CRUD, search)
-├── reservation/   bookings, overlap checks, cancellation
+├── reservation/   bookings, availability, edits, series, approvals
+├── audit/         append-only change history
 ├── user/          user entity and roles
 ├── config/        security, OpenAPI, first admin
 └── common/        API exceptions → Problem Details
@@ -67,6 +74,12 @@ without it.
 **Same origin, no CORS.** nginx serves the SPA and proxies `/api` to the backend, and Vite's dev server does the
 same. The browser only ever talks to a single origin.
 
+**Pending requests hold their slot.** The exclusion constraint covers `PENDING` and `CONFIRMED` rows, so an
+approval can never create a double booking. Postgres checks it on `UPDATE` too, so edits are covered as well.
+
+**Audit entries share the change's transaction** (`Propagation.MANDATORY`): a change and its history entry commit or
+roll back together, so the log cannot drift from the data.
+
 **Soft delete for resources.** Deactivating a resource keeps its reservation history intact.
 
 **`404` instead of `403` for other users' reservations**, so ids cannot be probed.
@@ -81,7 +94,7 @@ cd backend && ./mvnw verify    # needs Docker running for Testcontainers
 ```
 
 - `ReservationServiceTest`: unit tests of the booking rules with Mockito
-- `ApiIntegrationTest`: the full HTTP flow against a real PostgreSQL in a container (auth, roles, validation, pagination, overlap, cancellation, and the database constraint)
+- `ApiIntegrationTest`: the full HTTP flow against a real PostgreSQL in a container (auth, roles, validation, pagination, overlap, edits, series, approvals, availability, audit, and the database constraint on inserts and updates)
 
 CI runs both, plus the frontend lint and build and a Docker image build, on every push.
 
@@ -95,5 +108,6 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 ## Known limitations / next steps
 
 - The token is kept in `localStorage`; a production app would use an httpOnly cookie with refresh tokens
-- No availability calendar yet: overlaps are reported when you submit a booking
+- Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
+- Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
 - Next steps: Prometheus/Grafana metrics, a coverage badge (JaCoCo), and a cloud deployment

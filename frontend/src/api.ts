@@ -1,17 +1,26 @@
 export type Role = 'USER' | 'ADMIN'
 export type ResourceType = 'MEETING_ROOM' | 'DESK' | 'EQUIPMENT' | 'VEHICLE'
-export type ReservationStatus = 'CONFIRMED' | 'CANCELLED'
+export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED'
+export type Frequency = 'DAILY' | 'WEEKLY'
 
 export const RESOURCE_TYPES: ResourceType[] = ['MEETING_ROOM', 'DESK', 'EQUIPMENT', 'VEHICLE']
+export const RESERVATION_STATUSES: ReservationStatus[] = ['PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED']
+export const isActive = (s: ReservationStatus) => s === 'PENDING' || s === 'CONFIRMED'
 
 export interface User { id: number; name: string; email: string; role: Role }
 export interface AuthResponse { token: string; expiresAt: string; user: User }
 export interface Resource {
   id: number; name: string; description: string | null; type: ResourceType; capacity: number; active: boolean
+  requiresApproval: boolean
 }
 export interface Reservation {
   id: number; resourceId: number; resourceName: string; userId: number; userName: string
-  startTime: string; endTime: string; status: ReservationStatus; createdAt: string
+  startTime: string; endTime: string; status: ReservationStatus; seriesId: string | null; createdAt: string
+}
+export interface BusySlot { startTime: string; endTime: string; status: ReservationStatus }
+export interface AuditEntry {
+  id: number; entityType: 'RESERVATION' | 'RESOURCE'; entityId: number; action: string
+  actorId: number; actorName: string; details: string | null; createdAt: string
 }
 export interface Page<T> {
   content: T[]
@@ -38,11 +47,14 @@ export function saveAuth(auth: AuthResponse | null) {
 export class ApiError extends Error {
   status: number
   fieldErrors: Record<string, string>
+  /** The whole ProblemDetail, for extra fields such as `conflicts` */
+  data: Record<string, unknown>
 
-  constructor(status: number, message: string, fieldErrors: Record<string, string> = {}) {
+  constructor(status: number, message: string, fieldErrors: Record<string, string> = {}, data: Record<string, unknown> = {}) {
     super(message)
     this.status = status
     this.fieldErrors = fieldErrors
+    this.data = data
   }
 }
 
@@ -64,7 +76,7 @@ export async function api<T>(path: string, options: { method?: string; body?: un
   if (!res.ok) {
     // Backend errors are RFC 9457 ProblemDetail: { detail, errors? }
     const problem = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, problem.detail ?? `Request failed (${res.status})`, problem.errors)
+    throw new ApiError(res.status, problem.detail ?? `Request failed (${res.status})`, problem.errors, problem)
   }
   return (res.status === 204 ? undefined : await res.json()) as T
 }
@@ -79,3 +91,12 @@ export const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 export const label = (value: string) => value.replace('_', ' ').toLowerCase()
+
+export const formatTime = (d: Date | string) =>
+  new Date(d).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+
+export function errorText(err: unknown) {
+  if (!(err instanceof ApiError)) return 'Could not reach the server'
+  const fields = Object.values(err.fieldErrors ?? {}).join(', ')
+  return fields ? `${err.message}: ${fields}` : err.message
+}

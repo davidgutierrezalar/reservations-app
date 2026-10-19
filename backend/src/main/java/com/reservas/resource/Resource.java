@@ -25,18 +25,26 @@ public class Resource {
     @Column(nullable = false)
     private boolean active = true;
 
+    @Column(nullable = false)
+    private boolean requiresApproval;
+
     protected Resource() {
     }
 
     public Resource(String name, String description, ResourceType type, int capacity) {
-        update(name, description, type, capacity);
+        this(name, description, type, capacity, false);
     }
 
-    public void update(String name, String description, ResourceType type, int capacity) {
+    public Resource(String name, String description, ResourceType type, int capacity, boolean requiresApproval) {
+        update(name, description, type, capacity, requiresApproval);
+    }
+
+    public void update(String name, String description, ResourceType type, int capacity, boolean requiresApproval) {
         this.name = name;
         this.description = description;
         this.type = type;
         this.capacity = capacity;
+        this.requiresApproval = requiresApproval;
     }
 
     public void deactivate() { this.active = false; }
@@ -47,4 +55,5 @@ public class Resource {
     public ResourceType getType() { return type; }
     public int getCapacity() { return capacity; }
     public boolean isActive() { return active; }
+    public boolean isRequiresApproval() { return requiresApproval; }
 }

@@ -3,6 +3,7 @@ package com.reservas;
 import com.jayway.jsonpath.JsonPath;
 import com.reservas.reservation.Reservation;
 import com.reservas.reservation.ReservationRepository;
+import com.reservas.reservation.ReservationStatus;
 import com.reservas.resource.Resource;
 import com.reservas.resource.ResourceRepository;
 import com.reservas.resource.ResourceType;
@@ -169,6 +170,160 @@ class ApiIntegrationTest {
         assertThatThrownBy(() -> reservations.saveAndFlush(
                 new Reservation(resource, user, start.plus(10, ChronoUnit.MINUTES), start.plus(2, ChronoUnit.HOURS))))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void approvalFlowHoldsTheSlotAndIsAudited() throws Exception {
+        Long vanId = resources.save(new Resource("Van " + UUID.randomUUID(), null, ResourceType.VEHICLE, 8, true)).getId();
+        Instant start = futureHour(5);
+
+        String created = mvc.perform(auth(post("/api/reservations"), userToken)
+                        .content(reservationBody(vanId, start, start.plus(2, ChronoUnit.HOURS))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn().getResponse().getContentAsString();
+        Integer id = JsonPath.read(created, "$.id");
+
+        // A pending request already blocks the slot for everyone else
+        String other = register("other-" + UUID.randomUUID() + "@test.dev");
+        mvc.perform(auth(post("/api/reservations"), other)
+                        .content(reservationBody(vanId, start.plus(1, ChronoUnit.HOURS), start.plus(3, ChronoUnit.HOURS))))
+                .andExpect(status().isConflict());
+
+        mvc.perform(auth(patch("/api/reservations/" + id + "/approve"), userToken)).andExpect(status().isForbidden());
+        mvc.perform(auth(patch("/api/reservations/" + id + "/approve"), adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+        mvc.perform(auth(patch("/api/reservations/" + id + "/reject"), adminToken)).andExpect(status().isConflict());
+
+        mvc.perform(auth(get("/api/audit"), userToken)).andExpect(status().isForbidden());
+        mvc.perform(auth(get("/api/audit"), adminToken)
+                        .param("entityType", "RESERVATION").param("entityId", id.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].action").value("APPROVED"))
+                .andExpect(jsonPath("$.content[0].actorName").value("Admin"))
+                .andExpect(jsonPath("$.content[1].action").value("CREATED"));
+    }
+
+    @Test
+    void weeklySeriesIsAllOrNothingAndCanBeCancelledAsAWhole() throws Exception {
+        Long roomId = resources.save(new Resource("Room S", null, ResourceType.MEETING_ROOM, 4)).getId();
+        Instant start = futureHour(10);
+
+        String created = mvc.perform(auth(post("/api/reservations/series"), userToken)
+                        .content(seriesBody(roomId, start, start.plus(1, ChronoUnit.HOURS), 3)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andReturn().getResponse().getContentAsString();
+        String seriesId = JsonPath.read(created, "$[0].seriesId");
+        Integer firstId = JsonPath.read(created, "$[0].id");
+
+        // Weeks 3 and 4: only week 3 collides, yet nothing from this series may be created
+        String other = register("other-" + UUID.randomUUID() + "@test.dev");
+        Instant thirdWeek = start.plus(14, ChronoUnit.DAYS);
+        mvc.perform(auth(post("/api/reservations/series"), other)
+                        .content(seriesBody(roomId, thirdWeek.minus(30, ChronoUnit.MINUTES),
+                                thirdWeek.plus(30, ChronoUnit.MINUTES), 2)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.conflicts.length()").value(1));
+        mvc.perform(auth(get("/api/reservations/me"), other))
+                .andExpect(jsonPath("$.content.length()").value(0));
+
+        // One occurrence, then the rest of the series
+        mvc.perform(auth(patch("/api/reservations/" + firstId + "/cancel"), userToken)).andExpect(status().isOk());
+        mvc.perform(auth(patch("/api/reservations/series/" + seriesId + "/cancel"), other)).andExpect(status().isNotFound());
+        mvc.perform(auth(patch("/api/reservations/series/" + seriesId + "/cancel"), userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cancelled").value(2));
+    }
+
+    @Test
+    void editingKeepsTheSameRules() throws Exception {
+        Long roomId = resources.save(new Resource("Room E", null, ResourceType.MEETING_ROOM, 4)).getId();
+        Long otherRoomId = resources.save(new Resource("Room F", null, ResourceType.MEETING_ROOM, 4)).getId();
+        Instant start = futureHour(15);
+        createReservation(roomId, start, start.plus(1, ChronoUnit.HOURS));
+        Integer second = createReservation(roomId, start.plus(2, ChronoUnit.HOURS), start.plus(3, ChronoUnit.HOURS));
+
+        mvc.perform(auth(put("/api/reservations/" + second), userToken)
+                        .content(reservationBody(roomId, start.plus(30, ChronoUnit.MINUTES), start.plus(90, ChronoUnit.MINUTES))))
+                .andExpect(status().isConflict());
+        mvc.perform(auth(put("/api/reservations/" + second), userToken)
+                        .content(reservationBody(roomId, start.plus(2, ChronoUnit.HOURS), start.plus(15, ChronoUnit.HOURS))))
+                .andExpect(status().isBadRequest());
+        // Moving within its own current slot does not collide with itself
+        mvc.perform(auth(put("/api/reservations/" + second), userToken)
+                        .content(reservationBody(roomId, start.plus(150, ChronoUnit.MINUTES), start.plus(4, ChronoUnit.HOURS))))
+                .andExpect(status().isOk());
+        mvc.perform(auth(put("/api/reservations/" + second), userToken)
+                        .content(reservationBody(otherRoomId, start, start.plus(1, ChronoUnit.HOURS))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resourceName").value("Room F"));
+    }
+
+    @Test
+    void databaseConstraintAlsoBlocksOverlappingUpdates() {
+        Resource resource = resources.save(new Resource("Room U", null, ResourceType.MEETING_ROOM, 2));
+        var user = users.findByEmail("admin@test.dev").orElseThrow();
+        Instant start = futureHour(20);
+        reservations.saveAndFlush(new Reservation(resource, user, start, start.plus(1, ChronoUnit.HOURS)));
+        Reservation later = reservations.saveAndFlush(
+                new Reservation(resource, user, start.plus(2, ChronoUnit.HOURS), start.plus(3, ChronoUnit.HOURS)));
+
+        later.reschedule(resource, start.plus(30, ChronoUnit.MINUTES), start.plus(90, ChronoUnit.MINUTES),
+                ReservationStatus.CONFIRMED);
+        assertThatThrownBy(() -> reservations.saveAndFlush(later)).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void availabilityListsOnlySlotsThatAreTaken() throws Exception {
+        Long roomId = resources.save(new Resource("Room V", null, ResourceType.MEETING_ROOM, 4)).getId();
+        Instant start = futureHour(25);
+        createReservation(roomId, start, start.plus(1, ChronoUnit.HOURS));
+        Integer cancelled = createReservation(roomId, start.plus(2, ChronoUnit.HOURS), start.plus(3, ChronoUnit.HOURS));
+        mvc.perform(auth(patch("/api/reservations/" + cancelled + "/cancel"), userToken)).andExpect(status().isOk());
+
+        mvc.perform(auth(get("/api/resources/" + roomId + "/availability"), userToken)
+                        .param("from", start.minus(1, ChronoUnit.DAYS).toString())
+                        .param("to", start.plus(1, ChronoUnit.DAYS).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("CONFIRMED"))
+                .andExpect(jsonPath("$[0].userName").doesNotExist());
+
+        mvc.perform(auth(get("/api/resources/" + roomId + "/availability"), userToken)
+                        .param("from", start.toString()).param("to", start.plus(40, ChronoUnit.DAYS).toString()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void filtersResourcesByMinimumCapacity() throws Exception {
+        String tag = UUID.randomUUID().toString().substring(0, 8);
+        resources.save(new Resource("Cap " + tag + " small", null, ResourceType.MEETING_ROOM, 4));
+        resources.save(new Resource("Cap " + tag + " big", null, ResourceType.MEETING_ROOM, 12));
+
+        mvc.perform(auth(get("/api/resources"), userToken).param("name", tag).param("minCapacity", "8"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].capacity").value(12));
+    }
+
+    private Integer createReservation(Long resourceId, Instant start, Instant end) throws Exception {
+        String body = mvc.perform(auth(post("/api/reservations"), userToken).content(reservationBody(resourceId, start, end)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.id");
+    }
+
+    /** Each test books on its own day offset so tests never collide on shared resources. */
+    private static Instant futureHour(int daysAhead) {
+        return Instant.now().plus(daysAhead, ChronoUnit.DAYS).truncatedTo(ChronoUnit.HOURS);
+    }
+
+    private static String seriesBody(Long resourceId, Instant start, Instant end, int occurrences) {
+        return "{\"resourceId\":" + resourceId + ",\"startTime\":\"" + start + "\",\"endTime\":\"" + end
+                + "\",\"frequency\":\"WEEKLY\",\"occurrences\":" + occurrences + "}";
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request, String token) {
