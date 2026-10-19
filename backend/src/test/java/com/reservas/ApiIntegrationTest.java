@@ -75,6 +75,13 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void malformedJsonGetsAProblemDetail() throws Exception {
+        mvc.perform(auth(post("/api/reservations"), userToken).content("{\"resourceId\": 1, \"startTime\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Request body is missing or is not valid JSON"));
+    }
+
+    @Test
     void wrongPasswordIsUnauthorized() throws Exception {
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"admin@test.dev\",\"password\":\"wrong\"}"))

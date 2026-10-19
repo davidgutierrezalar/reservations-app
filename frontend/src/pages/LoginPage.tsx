@@ -34,9 +34,11 @@ export default function LoginPage() {
         type={type}
         required
         value={form[name]}
+        aria-invalid={Boolean(error?.fieldErrors[name])}
+        aria-describedby={error?.fieldErrors[name] ? `${name}-error` : undefined}
         onChange={(e) => setForm({ ...form, [name]: e.target.value })}
       />
-      {error?.fieldErrors[name] && <small className="error">{error.fieldErrors[name]}</small>}
+      {error?.fieldErrors[name] && <small className="error" id={`${name}-error`}>{error.fieldErrors[name]}</small>}
     </label>
   )
 

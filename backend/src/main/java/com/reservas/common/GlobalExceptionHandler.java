@@ -4,6 +4,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -31,6 +32,12 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.toMap(FieldError::getField, fe -> String.valueOf(fe.getDefaultMessage()), (a, b) -> a));
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    // Malformed JSON or a value of the wrong type; without this Spring answers in its own error format
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ProblemDetail handleUnreadable(HttpMessageNotReadableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request body is missing or is not valid JSON");
     }
 
     @ExceptionHandler(BadCredentialsException.class)

@@ -20,6 +20,11 @@ jobs:
           cache: maven
       # Integration tests use Testcontainers, which runs on the runner's Docker
       - run: sh mvnw -B verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/target/site/jacoco/
 
   frontend:
     runs-on: ubuntu-latest
