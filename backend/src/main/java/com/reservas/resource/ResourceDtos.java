@@ -15,14 +15,20 @@ public final class ResourceDtos {
             @NotBlank @Size(max = 100) String name,
             @Size(max = 500) String description,
             @NotNull ResourceType type,
-            @Min(1) @Max(1000) int capacity) {
+            @Min(1) @Max(1000) int capacity,
+            Boolean requiresApproval) {
+
+        // Boxed so older clients that omit the field still work: missing means bookings confirm instantly
+        public ResourceRequest {
+            requiresApproval = Boolean.TRUE.equals(requiresApproval);
+        }
     }
 
     public record ResourceResponse(Long id, String name, String description, ResourceType type, int capacity,
-                                   boolean active) {
+                                   boolean active, boolean requiresApproval) {
         static ResourceResponse from(Resource r) {
             return new ResourceResponse(r.getId(), r.getName(), r.getDescription(), r.getType(), r.getCapacity(),
-                    r.isActive());
+                    r.isActive(), r.isRequiresApproval());
         }
     }
 }

@@ -48,6 +48,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/resources/**").authenticated()
                         .requestMatchers("/api/resources/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/reservations").hasRole("ADMIN")
+                        .requestMatchers("/api/reservations/*/approve", "/api/reservations/*/reject").hasRole("ADMIN")
+                        .requestMatchers("/api/audit/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
                 .build();
