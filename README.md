@@ -6,6 +6,8 @@
 A full-stack app to book shared resources (meeting rooms, desks, equipment, vehicles), with JWT authentication,
 role-based access, and double-booking protection enforced by the database.
 
+![Signing in, booking a meeting room from the availability grid, and seeing it under My reservations](docs/demo.gif)
+
 > **Demo project.** Slotline is a portfolio piece: the spaces it lists are not real, and the public demo, if any,
 > is not meant for real bookings or real personal data.
 
