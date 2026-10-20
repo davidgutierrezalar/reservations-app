@@ -41,7 +41,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.admin.email=admin@test.dev",
         "app.admin.password=admin-password",
         // Every test signs in from the same address; AuthRateLimitFilterTest covers the limit itself
-        "app.auth.rate-limit.max-attempts=100000"})
+        "app.auth.rate-limit.max-attempts=100000",
+        // No grace, so presenting a rotated refresh token again always counts as reuse
+        "app.jwt.refresh-reuse-grace=PT0S"})
 class ApiIntegrationTest {
 
     @Autowired WebApplicationContext context;
@@ -96,7 +98,10 @@ class ApiIntegrationTest {
                 .anySatisfy(c -> assertThat(c).startsWith("access_token=")
                         .contains("Path=/api;", "HttpOnly", "Secure", "SameSite=Strict"))
                 .anySatisfy(c -> assertThat(c).startsWith("refresh_token=")
-                        .contains("Path=/api/auth/refresh;", "HttpOnly", "Secure", "SameSite=Strict"));
+                        .contains("Path=/api/auth;", "HttpOnly", "Secure", "SameSite=Strict"));
+        // The pre-rotation refresh cookie lived on a narrower path; it must be expired or browsers keep sending it
+        assertThat(res.getHeaders(HttpHeaders.SET_COOKIE))
+                .anySatisfy(c -> assertThat(c).startsWith("refresh_token=;").contains("Path=/api/auth/refresh;", "Max-Age=0"));
     }
 
     @Test
@@ -138,6 +143,34 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void reusingARotatedRefreshTokenSignsOutTheWholeFamily() throws Exception {
+        Cookie stolen = loginResponse("admin@test.dev", "admin-password").getCookie("refresh_token");
+        Cookie rotated = mvc.perform(post("/api/auth/refresh").cookie(stolen))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getCookie("refresh_token");
+        assertThat(rotated.getValue()).isNotEqualTo(stolen.getValue());
+
+        // The old token comes back: someone kept a copy, so the family is revoked
+        mvc.perform(post("/api/auth/refresh").cookie(stolen)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/refresh").cookie(rotated)).andExpect(status().isUnauthorized());
+
+        // Other sessions of the same user are separate families and keep working
+        Cookie otherDevice = loginResponse("admin@test.dev", "admin-password").getCookie("refresh_token");
+        mvc.perform(post("/api/auth/refresh").cookie(otherDevice)).andExpect(status().isOk());
+    }
+
+    @Test
+    void logoutRevokesTheRefreshToken() throws Exception {
+        Cookie refresh = loginResponse("admin@test.dev", "admin-password").getCookie("refresh_token");
+
+        mvc.perform(post("/api/auth/logout").cookie(refresh)).andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/auth/refresh").cookie(refresh))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Session expired, sign in again"));
+    }
+
+    @Test
     void logoutClearsBothCookies() throws Exception {
         MockHttpServletResponse res = mvc.perform(post("/api/auth/logout"))
                 .andExpect(status().isNoContent())
@@ -149,7 +182,7 @@ class ApiIntegrationTest {
     @Test
     void passwordsLongerThanBcryptAllowsAreRejectedCleanly() throws Exception {
         // 40 characters, 80 bytes in UTF-8: passes a character limit but BCrypt only takes 72 bytes
-        String multibyte = "ñ".repeat(40);
+        String multibyte = "Ã±".repeat(40);
         mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test\",\"email\":\"long-" + UUID.randomUUID() + "@test.dev\",\"password\":\"" + multibyte + "\"}"))
                 .andExpect(status().isBadRequest());
