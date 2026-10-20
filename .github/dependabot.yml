@@ -11,6 +11,10 @@ updates:
     schedule: { interval: weekly }
     groups:
       npm-minor-patch: { update-types: [minor, patch] }
+    ignore:
+      # Node type definitions must match the Node version we run (24), not the newest release
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
