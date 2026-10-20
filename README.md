@@ -1,6 +1,7 @@
 # Reservations
 
 ![CI](https://github.com/davidgutierrezalar/reservations-app/actions/workflows/ci.yml/badge.svg)
+![Coverage](https://raw.githubusercontent.com/davidgutierrezalar/reservations-app/badges/jacoco.svg)
 
 A full-stack app to book shared resources (meeting rooms, desks, equipment, vehicles), with JWT authentication,
 role-based access, and double-booking protection enforced by the database.
@@ -114,7 +115,9 @@ cd frontend && npm test        # Vitest + Testing Library, no backend needed
 - `ApiIntegrationTest`: the full HTTP flow against a real PostgreSQL in a container (auth, roles, validation, pagination, overlap, edits, series, approvals, availability, audit, and the database constraint on inserts and updates)
 
 CI runs all of them, plus the frontend lint and build and a Docker image build, on every push. `verify` also writes a JaCoCo
-coverage report to `backend/target/site/jacoco/index.html`, which CI uploads as the `coverage-report` artifact.
+coverage report to `backend/target/site/jacoco/index.html`, which CI uploads as the `coverage-report` artifact; on `main`
+it also redraws the coverage badge, kept on the `badges` branch. Dependabot opens weekly update PRs for Maven, npm,
+GitHub Actions and the Docker base images.
 
 ## Local development without Docker Compose
 
@@ -129,7 +132,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 - Refresh tokens are stateless, so signing out clears the cookies but cannot revoke a token copied before; storing them would allow rotation and revocation
 - Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
 - Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
-- Next steps: Prometheus/Grafana metrics, a coverage badge, and a cloud deployment
+- Next steps: Prometheus/Grafana metrics and a cloud deployment
 
 ## How this was built
 

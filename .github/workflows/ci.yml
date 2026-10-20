@@ -8,6 +8,9 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Write access only to push the coverage badge branch
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: backend
@@ -25,6 +28,20 @@ jobs:
         with:
           name: coverage-report
           path: backend/target/site/jacoco/
+      # On main only: draw the coverage badge and keep it on the orphan `badges` branch, so main gets no bot commits
+      - uses: cicirello/jacoco-badge-generator@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          jacoco-csv-file: backend/target/site/jacoco/jacoco.csv
+          badges-directory: badges
+      - name: Publish the badge
+        if: github.ref == 'refs/heads/main'
+        working-directory: badges
+        run: |
+          git init -q -b badges
+          git add jacoco.svg
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "Coverage badge"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" badges
 
   frontend:
     runs-on: ubuntu-latest
