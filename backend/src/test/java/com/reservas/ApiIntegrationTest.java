@@ -159,6 +159,15 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void validationMessagesAreInEnglishWhateverTheBrowserLanguage() throws Exception {
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .header("Accept-Language", "es-CO,es;q=0.9")
+                        .content("{\"name\":\"\",\"email\":\"x-" + UUID.randomUUID() + "@test.dev\",\"password\":\"password123\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.name").value("must not be blank"));
+    }
+
+    @Test
     void wrongPasswordIsUnauthorized() throws Exception {
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"admin@test.dev\",\"password\":\"wrong\"}"))
