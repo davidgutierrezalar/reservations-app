@@ -16,7 +16,7 @@ import java.time.Duration;
 
 /**
  * Tokens travel only in httpOnly cookies, so page scripts (and any XSS) never see them.
- * The refresh cookie is scoped to the refresh path, so it is not sent with ordinary API calls.
+ * The refresh cookie is scoped to /api/auth, so it is not sent with ordinary API calls.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -24,7 +24,11 @@ public class AuthController {
 
     public static final String ACCESS_COOKIE = "access_token";
     static final String REFRESH_COOKIE = "refresh_token";
-    private static final String REFRESH_PATH = "/api/auth/refresh";
+    // Covers /refresh and /logout, which must see it to revoke the session
+    private static final String REFRESH_PATH = "/api/auth";
+    // shortcut: refresh cookies before rotation lived here; browsers send that one first and it can never succeed.
+    // Expire it on every sign-in, refresh and logout; delete this line once those 7-day cookies have all expired
+    private static final String LEGACY_REFRESH_PATH = "/api/auth/refresh";
 
     private final AuthService authService;
     private final Duration accessTtl;
@@ -61,14 +65,18 @@ public class AuthController {
 
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(HttpServletResponse res) {
+    public void logout(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken,
+                       HttpServletResponse res) {
+        authService.logout(refreshToken);
         res.addHeader(HttpHeaders.SET_COOKIE, cookie(ACCESS_COOKIE, "", "/api", Duration.ZERO));
         res.addHeader(HttpHeaders.SET_COOKIE, cookie(REFRESH_COOKIE, "", REFRESH_PATH, Duration.ZERO));
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie(REFRESH_COOKIE, "", LEGACY_REFRESH_PATH, Duration.ZERO));
     }
 
     private UserResponse signIn(Tokens tokens, HttpServletResponse res) {
         res.addHeader(HttpHeaders.SET_COOKIE, cookie(ACCESS_COOKIE, tokens.accessToken(), "/api", accessTtl));
         res.addHeader(HttpHeaders.SET_COOKIE, cookie(REFRESH_COOKIE, tokens.refreshToken(), REFRESH_PATH, refreshTtl));
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie(REFRESH_COOKIE, "", LEGACY_REFRESH_PATH, Duration.ZERO));
         return tokens.user();
     }
 

@@ -31,7 +31,7 @@ Anyone can register as a regular user from the login screen.
 
 ## Features
 
-- Register and log in with stateless JWTs (HS256) in httpOnly cookies: a 15-minute access token renewed by a 7-day refresh token, with CSRF protection; passwords are hashed with BCrypt
+- Register and log in with httpOnly cookies: a 15-minute JWT access token (HS256) renewed by a 7-day refresh token that rotates on every use, with reuse detection, real logout and CSRF protection; passwords are hashed with BCrypt
 - Two roles: **USER** books resources and manages their own reservations; **ADMIN** manages resources and sees every reservation
 - Resource search with name, type and minimum-capacity filters, pagination and sorting
 - Reservations with validation: start time in the future, end after start, a maximum of 12 hours, and no overlaps
@@ -78,9 +78,15 @@ framework instead of custom filter code. The signing key comes from the environm
 without it.
 
 **Tokens in httpOnly cookies, not `localStorage`.** Page scripts never see a token, so an XSS bug cannot steal the
-session. Both cookies are `Secure` and `SameSite=Strict`; the refresh cookie is scoped to `/api/auth/refresh`, and
-a `token_use` claim stops a refresh token from being used as an access token. Because the browser now sends
-credentials by itself, writes require Spring Security's CSRF token (`XSRF-TOKEN` cookie echoed in a header).
+session. Both cookies are `Secure` and `SameSite=Strict`, and the refresh cookie is only sent to `/api/auth`.
+Because the browser sends credentials by itself, writes require Spring Security's CSRF token (`XSRF-TOKEN` cookie
+echoed in a header).
+
+**Refresh tokens rotate and can be revoked.** The access token is a short-lived JWT, but the refresh token is an
+opaque random value stored only as a SHA-256 hash, so a leaked table cannot be replayed. Each sign-in starts a
+token *family*; every refresh spends the presented token and issues the next one. If a spent token shows up again,
+someone kept a copy, so the whole family is revoked and both the thief and the user must sign in again. A
+10-second grace window lets two tabs refresh at the same moment without tripping it. Logout revokes the family.
 
 **Hardening against common attacks.** Login and register are rate-limited per client IP (429 with `Retry-After`),
 and login hashes a dummy password for unknown emails so response time does not reveal who is registered. nginx
@@ -131,7 +137,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /ap
 ## Known limitations / next steps
 
 - The Compose file ships demo defaults for `JWT_SECRET` and the admin password; set real values before any deployment
-- Refresh tokens are stateless, so signing out clears the cookies but cannot revoke a token copied before; storing them would allow rotation and revocation
+- An access token stays valid until it expires (15 minutes), even after logout; only the refresh token is revoked
 - Emails are a visual mockup only: there is no mail sending or scheduled reminder yet
 - Recurring dates step in fixed 24h/7d blocks (UTC), so in time zones with daylight saving the local hour shifts once
 - Next steps: Prometheus/Grafana metrics and a cloud deployment

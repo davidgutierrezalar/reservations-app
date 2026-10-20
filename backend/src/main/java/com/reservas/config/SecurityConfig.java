@@ -12,7 +12,6 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -117,22 +116,12 @@ public class SecurityConfig {
         return new NimbusJwtEncoder(new ImmutableSecret<>(key));
     }
 
-    /** Accepts only access tokens, so a refresh token cannot be used to call the API. */
+    /** Accepts only access tokens (token_use=access); refresh tokens are opaque and live in the database. */
     @Bean
-    @Primary
     JwtDecoder jwtDecoder() {
-        return decoder("access");
-    }
-
-    @Bean
-    JwtDecoder refreshTokenDecoder() {
-        return decoder("refresh");
-    }
-
-    private JwtDecoder decoder(String tokenUse) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
         decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(
-                new JwtClaimValidator<String>("token_use", tokenUse::equals)));
+                new JwtClaimValidator<String>("token_use", "access"::equals)));
         return decoder;
     }
 
